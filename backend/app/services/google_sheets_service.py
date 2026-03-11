@@ -34,8 +34,13 @@ class GoogleSheetsService:
     def _get_sheet(self) -> gspread.Worksheet:
         """Retorna a worksheet principal da planilha."""
         if self._sheet is None:
+            spreadsheet_id = (self.settings.spreadsheet_id or "").strip()
+            if not spreadsheet_id:
+                raise ValueError(
+                    "Configuração ausente: defina GOOGLE_SHEETS_SPREADSHEET_ID ou GOOGLE_SHEETS_SPREADSHEET_URL no .env"
+                )
             client = self._get_client()
-            spreadsheet = client.open_by_key(self.settings.spreadsheet_id)
+            spreadsheet = client.open_by_key(spreadsheet_id)
             self._sheet = spreadsheet.sheet1
         return self._sheet
 
@@ -55,6 +60,69 @@ class GoogleSheetsService:
 
         logger.info(f"Ticker {ticker} adicionado na linha {next_row} da planilha.")
         return next_row
+
+    @staticmethod
+    def _normalize_ticker(ticker: str) -> str:
+        return (ticker or "").strip().upper()
+
+    def procurar_linha_ticker(self, ticker: str) -> int | None:
+        """Retorna a linha (1-index) onde o ticker existe na coluna A, ou None."""
+        sheet = self._get_sheet()
+        target = self._normalize_ticker(ticker)
+        if not target:
+            return None
+
+        col_a_values = sheet.col_values(1)
+        for idx, value in enumerate(col_a_values, start=1):
+            if self._normalize_ticker(value) == target:
+                return idx
+        return None
+
+    def adicionar_ticker_primeira_linha_vazia(self, ticker: str) -> tuple[int, bool]:
+        """
+        Adiciona um ticker na primeira linha vazia da coluna A.
+        Se já existir na coluna A, não adiciona e retorna (linha_existente, False).
+        Retorna (linha, created).
+        """
+        sheet = self._get_sheet()
+        normalized = self._normalize_ticker(ticker)
+        if not normalized:
+            raise ValueError("Ticker vazio.")
+
+        # 1) Se já existir, retorna a linha existente
+        existing_row = self.procurar_linha_ticker(normalized)
+        if existing_row:
+            logger.info(f"Ticker {normalized} já existe na planilha (linha {existing_row}).")
+            return existing_row, False
+
+        # 2) Encontra a primeira linha vazia considerando possíveis 'buracos'
+        # col_values pode não incluir células vazias; por isso buscamos uma janela.
+        col_a_values = sheet.col_values(1)
+        scan_len = max(len(col_a_values) + 50, 50)
+        col_a_range = sheet.get(f"A1:A{scan_len}")
+        # sheet.get retorna lista de listas; pode vir com linhas faltando no final
+        for row in range(1, scan_len + 1):
+            value = ""
+            if row - 1 < len(col_a_range) and col_a_range[row - 1]:
+                value = col_a_range[row - 1][0]
+            if not str(value).strip():
+                sheet.update_cell(row, 1, normalized)
+                logger.info(f"Ticker {normalized} adicionado na linha {row} da planilha.")
+                return row, True
+
+        # fallback (praticamente nunca)
+        next_row = len(col_a_values) + 1
+        sheet.update_cell(next_row, 1, normalized)
+        logger.info(f"Ticker {normalized} adicionado na linha {next_row} da planilha (fallback).")
+        return next_row, True
+
+    def obter_dados_por_ticker(self, ticker: str, max_retries: int = 5, delay: float = 3.0) -> dict:
+        """Busca um ticker na coluna A e retorna dados (segmento, valor)."""
+        normalized = self._normalize_ticker(ticker)
+        row = self.procurar_linha_ticker(normalized)
+        if not row:
+            raise ValueError(f"Ticker {normalized} não encontrado na planilha.")
+        return self.obter_dados_ticker(normalized, row, max_retries=max_retries, delay=delay)
 
     def obter_dados_ticker(self, ticker: str, row: int, max_retries: int = 5, delay: float = 3.0) -> dict:
         """

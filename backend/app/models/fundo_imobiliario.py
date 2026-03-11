@@ -34,6 +34,8 @@ class FundoImobiliario(Base):
     quantidade_cotas = Column(Integer, nullable=False, default=0)
     valor_cota = Column(Float, nullable=True)
     valor_total = Column(Float, nullable=True)
+    valor_compra_cota = Column(Float, nullable=True)
+    valor_total_compra = Column(Float, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -41,8 +43,13 @@ class FundoImobiliario(Base):
         return f"<FundoImobiliario(ticker={self.ticker}, cotas={self.quantidade_cotas}, valor_cota={self.valor_cota})>"
 
     def calcular_valor_total(self):
-        """Calcula o valor total baseado na quantidade de cotas e valor da cota."""
-        if self.valor_cota and self.quantidade_cotas:
+        """Calcula valores totais (mercado e compra) baseados nas cotas."""
+        if self.valor_cota is not None and self.quantidade_cotas:
             self.valor_total = round(self.valor_cota * self.quantidade_cotas, 2)
         else:
             self.valor_total = 0.0
+
+        if self.valor_compra_cota is not None and self.quantidade_cotas:
+            self.valor_total_compra = round(self.valor_compra_cota * self.quantidade_cotas, 2)
+        else:
+            self.valor_total_compra = None

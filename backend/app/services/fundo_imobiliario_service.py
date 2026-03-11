@@ -104,7 +104,7 @@ class FundoImobiliarioService:
 
         # 1. Adiciona na planilha do Google Sheets
         try:
-            row = self.sheets_service.adicionar_ticker(ticker)
+            row, _created = self.sheets_service.adicionar_ticker_primeira_linha_vazia(ticker)
         except Exception as e:
             logger.error(f"Erro ao adicionar ticker na planilha: {e}")
             raise HTTPException(
@@ -126,6 +126,7 @@ class FundoImobiliarioService:
             segmento=dados_planilha.get("segmento"),
             quantidade_cotas=fundo_data.quantidade_cotas,
             valor_cota=dados_planilha.get("valor_cota"),
+            valor_compra_cota=fundo_data.valor_compra_cota,
         )
         novo_fundo.calcular_valor_total()
 
@@ -135,6 +136,68 @@ class FundoImobiliarioService:
 
         logger.info(f"Fundo {ticker} criado com sucesso. ID: {novo_fundo.id}")
         return novo_fundo
+
+    def salvar_posicao_calculada(
+        self,
+        ticker: str,
+        quantidade_cotas: int,
+        valor_compra_cota: float,
+        nome: str | None = None,
+    ) -> tuple[FundoImobiliario, bool]:
+        """
+        Lê dados do ticker na planilha (segmento/valor), calcula e salva no banco.
+        - Se já existir no banco, atualiza e retorna (fundo, created=False)
+        - Se não existir, cria e retorna (fundo, created=True)
+        """
+        ticker_norm = (ticker or "").strip().upper()
+        if not ticker_norm:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ticker inválido.")
+
+        # Garante que o ticker existe na planilha (sem duplicar)
+        try:
+            row, _created_sheet = self.sheets_service.adicionar_ticker_primeira_linha_vazia(ticker_norm)
+        except Exception as e:
+            logger.error(f"Erro ao adicionar/validar ticker na planilha: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Erro ao comunicar com Google Sheets: {str(e)}",
+            )
+
+        # Obtém os dados da planilha (segmento e valor)
+        try:
+            dados_planilha = self.sheets_service.obter_dados_ticker(ticker_norm, row, max_retries=2, delay=1.0)
+        except Exception as e:
+            logger.error(f"Erro ao obter dados da planilha: {e}")
+            dados_planilha = {"segmento": None, "valor_cota": None}
+
+        existente = self.obter_fundo_por_ticker(ticker_norm)
+        if existente:
+            if nome:
+                existente.nome = nome
+            existente.segmento = dados_planilha.get("segmento") or existente.segmento
+            existente.valor_cota = dados_planilha.get("valor_cota")
+            existente.quantidade_cotas = quantidade_cotas
+            existente.valor_compra_cota = valor_compra_cota
+            existente.calcular_valor_total()
+
+            self.db.commit()
+            self.db.refresh(existente)
+            return existente, False
+
+        novo_fundo = FundoImobiliario(
+            ticker=ticker_norm,
+            nome=nome or ticker_norm,
+            segmento=dados_planilha.get("segmento"),
+            quantidade_cotas=quantidade_cotas,
+            valor_cota=dados_planilha.get("valor_cota"),
+            valor_compra_cota=valor_compra_cota,
+        )
+        novo_fundo.calcular_valor_total()
+
+        self.db.add(novo_fundo)
+        self.db.commit()
+        self.db.refresh(novo_fundo)
+        return novo_fundo, True
 
     def atualizar_fundo(self, fundo_id: int, fundo_data: FundoImobiliarioUpdate) -> FundoImobiliario:
         """Atualiza um fundo imobiliário existente."""

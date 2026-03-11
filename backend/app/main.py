@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
-from app.core.database import engine, Base
+from app.core.database import engine, Base, ensure_db_schema
 from app.api.fundo_imobiliario import router as fii_router
 
 # Configuração de logging
@@ -17,6 +17,7 @@ settings = get_settings()
 
 # Cria as tabelas do banco de dados
 Base.metadata.create_all(bind=engine)
+ensure_db_schema()
 
 app = FastAPI(
     title=settings.APP_NAME,

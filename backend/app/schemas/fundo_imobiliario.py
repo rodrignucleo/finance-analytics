@@ -8,6 +8,7 @@ class FundoImobiliarioBase(BaseModel):
     ticker: str = Field(..., min_length=4, max_length=10, description="Ticker do fundo (ex: VGHF11)")
     quantidade_cotas: int = Field(..., ge=0, description="Quantidade de cotas do fundo")
     nome: Optional[str] = Field(None, max_length=255, description="Nome do fundo")
+    valor_compra_cota: Optional[float] = Field(None, ge=0, description="Preço médio/valor de compra por cota")
 
 
 class FundoImobiliarioCreate(FundoImobiliarioBase):
@@ -20,6 +21,7 @@ class FundoImobiliarioUpdate(BaseModel):
     ticker: Optional[str] = Field(None, min_length=4, max_length=10)
     nome: Optional[str] = Field(None, max_length=255)
     quantidade_cotas: Optional[int] = Field(None, ge=0)
+    valor_compra_cota: Optional[float] = Field(None, ge=0)
 
 
 class FundoImobiliarioResponse(BaseModel):
@@ -31,6 +33,8 @@ class FundoImobiliarioResponse(BaseModel):
     quantidade_cotas: int
     valor_cota: Optional[float] = None
     valor_total: Optional[float] = None
+    valor_compra_cota: Optional[float] = None
+    valor_total_compra: Optional[float] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
