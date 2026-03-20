@@ -1,0 +1,3 @@
+backend/.env
+.DS_Store
+backend/credentials/google_service_account.json
